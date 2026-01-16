@@ -7,7 +7,8 @@ const path = require("path");
 require("dotenv").config();
 
 // Check required environment variables
-const requiredEnvVars = ['MONGO_URI', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SESSION_SECRET'];
+const requiredEnvVars = ['MONGO_URI', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SESSION_SECRET', 'EMAIL_USER',
+  'EMAIL_PASS'];
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
@@ -47,7 +48,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false, // set true after HTTPS
+      secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 60 * 60 * 1000, // 1 hour
     },
   })
