@@ -169,3 +169,15 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 });
+// ================= MOBILE NAV TOGGLE =================
+
+// Mobile dropdown toggle
+document.querySelectorAll(".dropdown-menu > a").forEach(link => {
+  link.addEventListener("click", e => {
+    if (window.innerWidth <= 768) {
+      e.preventDefault();
+      link.parentElement.classList.toggle("active");
+    }
+  });
+});
+
