@@ -3,11 +3,20 @@
 // ==========================
 const nodemailer = require("nodemailer");
 
-
 const path = require("path");
 require("dotenv").config();
-console.log("ADMIN_USERNAME =", process.env.ADMIN_USERNAME);
-console.log("ADMIN_PASSWORD =", process.env.ADMIN_PASSWORD);
+
+// Check required environment variables
+const requiredEnvVars = ['MONGO_URI', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SESSION_SECRET'];
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error(`❌ Missing required environment variables: ${missingVars.join(', ')}`);
+  console.error('Please set these in your .env file or Vercel environment variables.');
+  process.exit(1);
+}
+
+console.log("✅ Environment variables loaded successfully");
 
 // ==========================
 // IMPORT PACKAGES
@@ -65,7 +74,11 @@ transporter.verify((error, success) => {
 });
 
 app.use(morgan("combined"));
-app.use(cors());
+// Configure CORS properly
+app.use(cors({
+  origin: process.env.FRONTEND_URL || "http://localhost:3000", // Adjust as needed
+  credentials: true
+}));
 
 // ==========================
 // RATE LIMITING
