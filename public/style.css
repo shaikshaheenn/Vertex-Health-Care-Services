@@ -1265,6 +1265,18 @@ img {
 
 /* For Mobile Phones (768px and down) */
 @media (max-width: 768px) {
+    .logo-img {
+    height: 60px;
+    }
+    .navbar {
+    top: 0;
+    }
+
+    .helpline-bar {
+    position: relative;
+    }
+
+
     /* 1. Fix the Header and Nav */
     .nav-wrapper {
         padding: 10px 20px;
@@ -1333,6 +1345,18 @@ img {
     .section-title-bar {
         justify-content: center;
     }
+    /* Mobile dropdown fix */
+    .dropdown-content {
+    position: static;
+    max-height: none;
+    box-shadow: none;
+    display: none;
+    }   
+
+    .dropdown-menu.active .dropdown-content {
+    display: block;
+    }
+
 }
 
 @media (max-width: 480px) {
