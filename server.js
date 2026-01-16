@@ -7,8 +7,7 @@ const path = require("path");
 require("dotenv").config();
 
 // Check required environment variables
-const requiredEnvVars = ['MONGO_URI', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SESSION_SECRET', 'EMAIL_USER',
-  'EMAIL_PASS'];
+const requiredEnvVars = ['MONGO_URI', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SESSION_SECRET'];
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
@@ -199,15 +198,17 @@ app.post("/api/appointments", async (req, res) => {
     await newAppointment.save();
     console.log("✅ Appointment saved to database");
 
-    // 2. Send email to admin from user's email
-    console.log("📧 Sending email to admin...");
+    // 2. Send email to admin from user's email (if email is configured)
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      console.log("📧 Sending email to admin...");
 
-    await transporter.sendMail({
-      from: `"${req.body.fullName}" <${process.env.EMAIL_USER}>`, // From admin account but show user's name
-      replyTo: req.body.emailAddress || process.env.EMAIL_USER, // Reply goes to user's email
-      to: process.env.EMAIL_USER, // admin inbox
-      subject: "🩺 New Appointment Booked - " + req.body.fullName,
-      text: `
+      try {
+        await transporter.sendMail({
+          from: `"${req.body.fullName}" <${process.env.EMAIL_USER}>`, // From admin account but show user's name
+          replyTo: req.body.emailAddress || process.env.EMAIL_USER, // Reply goes to user's email
+          to: process.env.EMAIL_USER, // admin inbox
+          subject: "🩺 New Appointment Booked - " + req.body.fullName,
+          text: `
 New Appointment Details:
 
 Name: ${req.body.fullName}
@@ -221,10 +222,17 @@ Booked At: ${new Date().toLocaleString()}
 
 ---
 Reply to this email to contact the patient directly.
-      `,
-    });
+          `,
+        });
 
-    console.log("📨 Email sent successfully");
+        console.log("📨 Email sent successfully");
+      } catch (emailError) {
+        console.error("❌ Email sending failed:", emailError.message);
+        // Continue without failing the appointment booking
+      }
+    } else {
+      console.log("📧 Email not configured, skipping email notification");
+    }
 
     // 3. Respond to frontend
     res.status(201).json({ message: "Appointment booked successfully!" });
