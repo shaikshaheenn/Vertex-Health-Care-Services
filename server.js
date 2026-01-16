@@ -78,7 +78,7 @@ transporter.verify((error, success) => {
 app.use(morgan("combined"));
 // Configure CORS properly
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000", // Adjust as needed
+  origin: true,
   credentials: true
 }));
 
