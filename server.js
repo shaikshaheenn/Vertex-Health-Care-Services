@@ -1,22 +1,18 @@
 // ==========================
 // LOAD ENV VARIABLES
 // ==========================
-const nodemailer = require("nodemailer");
-
 const path = require("path");
 require("dotenv").config();
+const nodemailer = require("nodemailer");
 
 // Check required environment variables
-const requiredEnvVars = ['MONGO_URI', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SESSION_SECRET'];
+const requiredEnvVars = ['MONGO_URI', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SESSION_SECRET', 'EMAIL_USER', 'EMAIL_PASS'];
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
   console.error(`❌ Missing required environment variables: ${missingVars.join(', ')}`);
-  console.error('Please set these in your .env file or Vercel environment variables.');
   process.exit(1);
 }
-
-console.log("✅ Environment variables loaded successfully");
 
 // ==========================
 // IMPORT PACKAGES
@@ -25,88 +21,52 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const session = require("express-session");
-
 const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
 const morgan = require("morgan");
 
-// ==========================
-// INITIALIZE APP
-// ==========================
 const app = express();
 
 // ==========================
 // GLOBAL MIDDLEWARE
 // ==========================
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(morgan("dev"));
+app.use(cors({
+  origin: ["http://localhost:5500", "http://127.0.0.1:5500", "http://localhost:3000"], 
+  credentials: true
+}));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "fallback_secret",
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      maxAge: 60 * 60 * 1000, // 1 hour
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 60 * 60 * 1000, 
     },
   })
 );
 
-app.use(
-  helmet({
-    crossOriginResourcePolicy: false,
-  })
-);
+// ==========================
+// EMAIL CONFIGURATION
+// ==========================
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    pass: process.env.EMAIL_PASS, 
   },
 });
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ Email transporter error:", error);
-  } else {
-    console.log("✅ Email server ready");
-  }
-});
 
-app.use(morgan("combined"));
-// Configure CORS properly
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
-
-// ==========================
-// RATE LIMITING
-// ==========================
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-});
-app.use(limiter);
-
-// ==========================
-// STATIC FILES
-// ==========================
-app.use(express.static(path.join(__dirname, "public")));
-
-// ==========================
-// TEST ROUTE
-// ==========================
-app.get("/test", (req, res) => {
-  res.send("TEST ROUTE WORKS");
-});
-
-// ==========================
-// ROOT ROUTE
-// ==========================
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+transporter.verify((error) => {
+  if (error) console.error("❌ Email transporter error:", error.message);
+  else console.log("✅ Email server ready");
 });
 
 // ==========================
@@ -114,16 +74,16 @@ app.get("/", (req, res) => {
 // ==========================
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ Vertex Database Connected Successfully!"))
+  .then(() => console.log("✅ Vertex Database Connected"))
   .catch((err) => console.error("❌ Database Connection Error:", err));
 
 // ==========================
-// APPOINTMENT SCHEMA
+// SCHEMA & MODEL
 // ==========================
 const appointmentSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true, trim: true },
-    mobileNumber: { type: String, required: true, minlength: 10, maxlength: 15 },
+    mobileNumber: { type: String, required: true },
     emailAddress: { type: String, trim: true },
     department: { type: String, required: true },
     doctorName: { type: String, trim: true },
@@ -136,149 +96,84 @@ const appointmentSchema = new mongoose.Schema(
 const Appointment = mongoose.model("Appointment", appointmentSchema);
 
 // ==========================
-// ADMIN AUTH MIDDLEWARE
+// ROUTES
 // ==========================
-function requireAdmin(req, res, next) {
-  if (req.session.isAdmin) return next();
-  res.status(401).json({ message: "Unauthorized" });
-}
 
-// ==========================
-// ADMIN LOGIN
-// ==========================
-app.post("/admin/login", (req, res) => {
-  const { username, password } = req.body;
-
-  if (
-    username === process.env.ADMIN_USERNAME &&
-    password === process.env.ADMIN_PASSWORD
-  ) {
-    req.session.isAdmin = true;
-    return res.json({ message: "Login successful" });
-  }
-
-  res.status(401).json({ message: "Invalid credentials" });
-});
-
-// ==========================
-// ADMIN LOGOUT
-// ==========================
-app.post("/admin/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.clearCookie("connect.sid");
-    res.json({ message: "Logged out successfully" });
-  });
-});
-
-// ==========================
-// PROTECTED ADMIN PAGE
-// ==========================
-app.get("/admin.html", (req, res) => {
-  if (!req.session.isAdmin) {
-    return res.redirect("/admin_login.html");
-  }
-  res.sendFile(path.join(__dirname, "public", "admin.html"));
-});
-
-// ==========================
-// CREATE APPOINTMENT (PUBLIC)
-// ==========================
+// 1. CREATE APPOINTMENT (Public)
 app.post("/api/appointments", async (req, res) => {
   try {
-    console.log("📌 Appointment request received");
-
-    const { fullName, mobileNumber, department } = req.body;
+    const { fullName, mobileNumber, department, emailAddress, doctorName, reasonForVisit } = req.body;
 
     if (!fullName || !mobileNumber || !department) {
-      return res.status(400).json({ message: "Required fields missing" });
+      return res.status(400).json({ message: "Missing required fields: Name, Phone, or Department" });
     }
 
-    // 1. Save appointment
+    // Save to Database
     const newAppointment = new Appointment(req.body);
-    await newAppointment.save();
-    console.log("✅ Appointment saved to database");
+    const savedData = await newAppointment.save();
 
-    // 2. Send email to admin from user's email (if email is configured)
+    // 2. Send formatted email to Admin
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      console.log("📧 Sending email to admin...");
-
-      try {
-        await transporter.sendMail({
-          from: `"${req.body.fullName}" <${process.env.EMAIL_USER}>`, // From admin account but show user's name
-          replyTo: req.body.emailAddress || process.env.EMAIL_USER, // Reply goes to user's email
-          to: process.env.EMAIL_USER, // admin inbox
-          subject: "🩺 New Appointment Booked - " + req.body.fullName,
-          text: `
+      const mailOptions = {
+        from: `"${fullName}" <${process.env.EMAIL_USER}>`, // Shows patient name in your inbox
+        replyTo: emailAddress || "No Email Provided", // Let's you reply directly to the patient
+        to: process.env.EMAIL_USER, // Sends to your admin email
+        subject: `🩺 New Appointment Booked - ${fullName}`,
+        text: `
 New Appointment Details:
 
-Name: ${req.body.fullName}
-Mobile: ${req.body.mobileNumber}
-Email: ${req.body.emailAddress || "N/A"}
-Department: ${req.body.department}
-Doctor: ${req.body.doctorName || "Not specified"}
-Reason: ${req.body.reasonForVisit}
+Name: ${fullName}
+Mobile: ${mobileNumber}
+Email: ${emailAddress || "N/A"}
+Department: ${department}
+Doctor: ${doctorName || "Not specified"}
+Reason: ${reasonForVisit || "Not specified"}
 
 Booked At: ${new Date().toLocaleString()}
 
 ---
 Reply to this email to contact the patient directly.
-          `,
-        });
-
-        console.log("📨 Email sent successfully");
-      } catch (emailError) {
-        console.error("❌ Email sending failed:", emailError.message);
-        // Continue without failing the appointment booking
-      }
-    } else {
-      console.log("📧 Email not configured, skipping email notification");
+        `,
+      };
+      
+      transporter.sendMail(mailOptions).catch(err => console.log("Email Notification Error:", err.message));
     }
 
-    // 3. Respond to frontend
-    res.status(201).json({ message: "Appointment booked successfully!" });
+    res.status(201).json({ message: "Success", data: savedData });
   } catch (err) {
-    console.error("❌ Appointment error:", err);
-    res.status(500).json({ error: "Server failed to save appointment" });
+    console.error("❌ Booking Error:", err);
+    res.status(500).json({ message: "Server error while saving appointment." });
   }
 });
 
-// ==========================
-// GET APPOINTMENTS (ADMIN)
-// ==========================
-app.get("/api/appointments", requireAdmin, async (req, res) => {
+// 2. ADMIN LOGIN
+app.post("/admin/login", (req, res) => {
+  const { username, password } = req.body;
+  if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
+    req.session.isAdmin = true;
+    return res.json({ message: "Login successful" });
+  }
+  res.status(401).json({ message: "Invalid credentials" });
+});
+
+// 3. PROTECTED ADMIN VIEW
+app.get("/api/appointments", async (req, res) => {
+  if (!req.session.isAdmin) return res.status(401).json({ message: "Unauthorized" });
   try {
     const appointments = await Appointment.find().sort({ createdAt: -1 });
     res.json(appointments);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch appointments" });
+    res.status(500).json({ error: "Fetch failed" });
   }
 });
 
-// ==========================
-// UPDATE STATUS (ADMIN)
-// ==========================
-app.patch("/api/appointments/:id", requireAdmin, async (req, res) => {
-  try {
-    const { status } = req.body;
-    await Appointment.findByIdAndUpdate(req.params.id, { status });
-    res.json({ message: "Status updated" });
-  } catch (err) {
-    res.status(500).json({ error: "Update failed" });
-  }
-});
-
-// ==========================
-// GLOBAL ERROR HANDLER
-// ==========================
-app.use((err, req, res, next) => {
-  console.error("🔥 ERROR:", err);
-  res.status(500).json({ message: "Internal Server Error" });
-});
+// Static files
+app.use(express.static(path.join(__dirname, "public")));
 
 // ==========================
 // START SERVER
 // ==========================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running: http://localhost:${PORT}`);
 });
